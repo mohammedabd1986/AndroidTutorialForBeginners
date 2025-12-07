@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Inventory</string>
+    <string name="result_empty">Not found</string>
+    <string name="result_template">%1$s (%2$s) - $%3$.2f</string>
+    <string name="no_stock">No stock</string>
+    <string name="warehouse_quantities">Warehouse Quantities</string>
+    <string name="import_url_hint">Excel File Direct Download URL</string>
+    <string name="save">Save</string>
+    <string name="saved">Saved</string>
+</resources>
