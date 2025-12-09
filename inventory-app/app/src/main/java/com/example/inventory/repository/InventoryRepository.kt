@@ -1,118 +1,90 @@
 package com.example.inventory.repository
 
-import com.example.inventory.data.AppDatabase
-import com.example.inventory.data.Item
-import com.example.inventory.data.ItemWithStock
-import com.example.inventory.data.WarehouseStock
-import kotlinx.coroutines.CoroutineDispatcher
+import com.example.inventory.data.api.DownloadService
+import com.example.inventory.data.dao.InventoryDao
+import com.example.inventory.data.entity.Item
+import com.example.inventory.data.entity.WarehouseStock
+import com.example.inventory.util.ExcelParser
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.apache.poi.ss.usermodel.WorkbookFactory
-import java.io.File
-import java.io.FileInputStream
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import okhttp3.ResponseBody
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import java.io.InputStream
+import javax.inject.Inject
 
-data class PendingStock(
-    val itemIndex: Int,
-    val warehouseName: String,
-    val quantity: Int
-)
-
-class InventoryRepository(
-    private val db: AppDatabase,
-    private val okHttpClient: OkHttpClient,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+class InventoryRepository @Inject constructor(
+    private val inventoryDao: InventoryDao
 ) {
+    // Ideally, injected via Hilt
+    private val retrofit = Retrofit.Builder()
+        .baseUrl("https://google.com/") // Placeholder, URL will be dynamic
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
 
-    private val _importProgress = MutableStateFlow(0)
-    val importProgress: StateFlow<Int> = _importProgress.asStateFlow()
+    private val downloadService = retrofit.create(DownloadService::class.java)
+    private val parser = ExcelParser()
 
-    suspend fun downloadAndImport(url: String) = withContext(ioDispatcher) {
-        val tempFile = File.createTempFile("inventory", ".xlsx")
-        okHttpClient.newCall(Request.Builder().url(url).build()).execute().use { resp ->
-            resp.body?.byteStream()?.use { input ->
-                tempFile.outputStream().use { output -> input.copyTo(output) }
-            }
+    fun getItemByCode(code: String): Flow<Item?> = flow {
+        emit(inventoryDao.getItemByCode(code))
+    }.flowOn(Dispatchers.IO)
+
+    fun getStocksByItemId(itemId: Long): Flow<List<WarehouseStock>> = flow {
+        emit(inventoryDao.getStocksByItemId(itemId))
+    }.flowOn(Dispatchers.IO)
+
+    suspend fun downloadAndProcessExcel(url: String, onProgress: (String) -> Unit) {
+        // 1. Download
+        onProgress("Downloading...")
+        // For dynamic URL with retrofit, we can just pass the full URL to the @Url parameter
+        // The base URL doesn't matter much if we use @Url
+        val response = downloadService.downloadFile(url)
+        val body = response.body()
+
+        if (!response.isSuccessful || body == null) {
+            throw Exception("Download failed: ${response.code()}")
         }
-        importExcel(tempFile)
-    }
 
-    private suspend fun importExcel(file: File) = withContext(ioDispatcher) {
-        db.withTransaction {
-            db.itemDao().clearItems()
-            db.warehouseStockDao().clearStock()
-        }
+        // 2. Parse and Insert
+        onProgress("Processing...")
+        val inputStream: InputStream = body.byteStream()
 
-        FileInputStream(file).use { fis ->
-            val workbook = WorkbookFactory.create(fis)
-            val sheet = workbook.getSheetAt(0)
-            val totalRows = sheet.lastRowNum
-            if (totalRows == 0) return@use
+        // Clear old data? Requirement implies inventory update.
+        // Strategy: Clear all before load or Update?
+        // Usually full replace for "Import".
+        inventoryDao.clearAllStocks()
+        inventoryDao.clearAllItems()
 
-            val headerRow = sheet.getRow(0)
-            val headers = headerRow.map { it.stringCellValue.trim() }
-            val warehouseCols = headers.drop(3)
+        var count = 0
+        parser.parseSuspending(inputStream) { batch ->
+            // Batch is List<ParsedData>
+            val items = batch.map { it.item }
 
-            val batchItems = mutableListOf<Item>()
-            val pendingStocks = mutableListOf<PendingStock>()
-            var processed = 0
+            // Insert Items
+            val insertedIds = inventoryDao.insertItems(items)
 
-            for (rowIndex in 1..totalRows) {
-                val row = sheet.getRow(rowIndex) ?: continue
-                val code = row.getCell(0)?.stringCellValue.orEmpty()
-                val name = row.getCell(1)?.stringCellValue.orEmpty()
-                val price = row.getCell(2)?.numericCellValue ?: 0.0
-
-                val itemIndex = batchItems.size
-                batchItems.add(Item(code = code, name = name, price = price))
-
-                warehouseCols.forEachIndexed { idx, warehouseName ->
-                    val qty = row.getCell(3 + idx)?.numericCellValue?.toInt() ?: 0
-                    if (qty > 0) {
-                        pendingStocks.add(PendingStock(itemIndex, warehouseName, qty))
-                    }
+            // Prepare Stocks with correct ItemIDs
+            val stocks = mutableListOf<WarehouseStock>()
+            batch.forEachIndexed { index, parsedData ->
+                val itemId = insertedIds[index] // Assuming ordered return match ordered insert
+                parsedData.stocks.forEach { dummy ->
+                    stocks.add(WarehouseStock(
+                        itemId = itemId,
+                        warehouseName = dummy.warehouseName,
+                        quantity = dummy.quantity
+                    ))
                 }
-
-                if (batchItems.size >= 500) {
-                    persistBatch(batchItems, pendingStocks)
-                    processed += batchItems.size
-                    batchItems.clear()
-                    pendingStocks.clear()
-                    _importProgress.value = ((processed / totalRows.toFloat()) * 100).toInt().coerceAtMost(99)
-                }
             }
 
-            if (batchItems.isNotEmpty()) {
-                persistBatch(batchItems, pendingStocks)
-                processed += batchItems.size
-            }
-            _importProgress.value = 100
-            workbook.close()
+            // Insert Stocks
+            inventoryDao.insertStocks(stocks)
+
+            count += batch.size
+            onProgress("Processed $count records...")
         }
-    }
 
-    private suspend fun persistBatch(
-        items: List<Item>,
-        pendingStocks: List<PendingStock>
-    ) {
-        db.withTransaction {
-            val ids = db.itemDao().insertItems(items)
-            val idMap = ids.withIndex().associate { (index, id) -> index to id }
-            val stocks = pendingStocks.mapNotNull { pending ->
-                val itemId = idMap[pending.itemIndex] ?: return@mapNotNull null
-                WarehouseStock(itemId = itemId, warehouseName = pending.warehouseName, quantity = pending.quantity)
-            }
-            if (stocks.isNotEmpty()) {
-                db.warehouseStockDao().insertAll(stocks)
-            }
-        }
-    }
-
-    suspend fun searchByCode(code: String): ItemWithStock? = withContext(ioDispatcher) {
-        db.itemDao().findWithStock(code.trim())
+        onProgress("Completed! Total: $count")
     }
 }

@@ -21,8 +21,13 @@ android {
         viewBinding true
     }
 
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
     kotlinOptions {
-        jvmTarget = '17'
+        jvmTarget = '1.8'
     }
 }
 
@@ -41,15 +46,23 @@ dependencies {
 
     implementation "com.squareup.okhttp3:okhttp:4.12.0"
     implementation "com.squareup.retrofit2:retrofit:2.11.0"
+    implementation "com.squareup.retrofit2:converter-gson:2.11.0"
 
-    implementation "org.apache.poi:poi-ooxml-lite:5.2.5"
+    // Apache POI for Excel and Streaming Reader
+    implementation "org.apache.poi:poi:5.2.5"
+    implementation "org.apache.poi:poi-ooxml:5.2.5"
+    // Using excel-streaming-reader for memory efficiency (batch processing of large files)
+    implementation "com.github.pjfanning:excel-streaming-reader:4.2.1"
 
     implementation "com.journeyapps:zxing-android-embedded:4.3.0"
+    implementation "com.google.zxing:core:3.5.3"
 
     implementation "com.google.dagger:hilt-android:2.51"
     kapt "com.google.dagger:hilt-compiler:2.51"
 
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.7.0"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0"
+    implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.7.0"
     implementation "androidx.activity:activity-ktx:1.9.0"
     implementation "androidx.fragment:fragment-ktx:1.6.2"
 }
