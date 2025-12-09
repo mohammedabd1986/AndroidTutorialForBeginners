@@ -9,13 +9,34 @@
         android:id="@+id/etUrl"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="@string/import_url_hint"
+        android:hint="Enter Excel Direct Download URL"
         android:inputType="textUri" />
 
     <Button
         android:id="@+id/btnSave"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Save URL" />
+
+    <Button
+        android:id="@+id/btnImportNow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Import Data Now" />
+
+    <TextView
+        android:id="@+id/tvStatus"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/save" />
+        android:layout_marginTop="16dp"
+        android:text="Status: Idle" />
+
+    <ProgressBar
+        android:id="@+id/progressBar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:visibility="gone" />
 
 </LinearLayout>

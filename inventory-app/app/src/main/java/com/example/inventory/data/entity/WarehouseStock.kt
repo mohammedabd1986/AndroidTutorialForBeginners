@@ -1,12 +1,12 @@
-package com.example.inventory.data
+package com.example.inventory.data.entity
 
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
+import androidx.room.PrimaryKey
 
 @Entity(
-    tableName = "warehouse_stock",
-    primaryKeys = ["itemId", "warehouseName"],
+    tableName = "warehouse_stocks",
     foreignKeys = [
         ForeignKey(
             entity = Item::class,
@@ -15,9 +15,11 @@ import androidx.room.Index
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("itemId"), Index("warehouseName")]
+    indices = [Index(value = ["itemId"])]
 )
 data class WarehouseStock(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
     val itemId: Long,
     val warehouseName: String,
     val quantity: Int
